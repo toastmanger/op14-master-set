@@ -254,6 +254,10 @@ table.tot tfoot td{font-weight:700;border-bottom:0}
 .box p{margin:6px 0;font-size:14px}
 .box .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .box .btn{flex:none;background:#fff;border:1.5px solid var(--line);padding:10px 14px}
+.lday{margin:12px 0 4px;font-size:14px}
+.lrow{margin:2px 0;font-size:13.5px}
+.lrow span{display:inline-block;min-width:3.2em;color:var(--mute)}
+#logBox .why{color:var(--mute)}
 .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));z-index:20;transform:translateX(-50%);display:flex;gap:14px;align-items:center;
   max-width:calc(100% - 24px);background:var(--ai);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s}
 .toast.show{opacity:1}
@@ -329,6 +333,7 @@ table.tot tfoot td{font-weight:700;border-bottom:0}
   <section id="tab-sum" hidden>
     <table class="tot" id="tot"></table>
     <div class="box" id="buyInfo"></div>
+    <div class="box" id="logBox"></div>
     <div class="box">
       <h3>Перенести отметки</h3>
       <p>Отметки хранятся только в этом браузере. Чтобы перенести их на другое устройство или отправить Claude, скопируйте список и вставьте его там. В списке всё: «есть», записанные цены по магазинам, ваши магазины, «хочу» и заметки.</p>
@@ -353,7 +358,7 @@ table.tot tfoot td{font-weight:700;border-bottom:0}
     <div class="box">
       <h3>Как читать цены</h3>
       <p><b>Ориентир</b> — честная цена сейчас. <b>Не дороже</b> — порог, выше которого не брать. <b>В наличии от</b> — самая дешёвая копия в хорошем состоянии на живой странице магазина. ⚠ — онлайн сейчас только дороже порога, ищите в магазинах по пути.</p>
-      <p>Такс-фри до 31.10.2026: от ¥5 000 без налога в одном магазине за день, это примерно ¥5 500 по ценникам. Реальная цена — ценник ÷ 1,1. Платить наличными.</p>
+      <p>Такс-фри до 31.10.2026: от ¥5 000 без налога в одном магазине за день, это примерно ¥5 500 по ценникам. Реальная цена — ценник ÷ 1,1.</p>
       <p id="asof"></p>
     </div>
   </section>
@@ -410,7 +415,8 @@ const label = c => `${c.n} ${c.v}`;
 const SHOPS = new Map(DATA.shops.map(s => [s.w, s]));
 
 /* ---------- state (localStorage), with migration from v1 (own only) and v2 (found) ---------- */
-const DEF = () => ({v: 3, own: {}, notes: {}, seen: {}, bought: {}, want: {}, shops: {}, visits: [], visit: {on: false, w: ''}, scope: 'b', city: 'Киото'});
+const DEF = () => ({v: 3, own: {}, notes: {}, seen: {}, bought: {}, want: {}, shops: {}, visits: [], visit: {on: false, w: ''}, scope: 'b', city: 'Киото', log: []});
+function logAct(a, i, extra){ st.log.push(Object.assign({t: Date.now(), a, i: i || ''}, extra || {})); if (st.log.length > 1500) st.log = st.log.slice(-1500); }
 function load(){
   let s;
   try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { s = {}; }
@@ -486,8 +492,9 @@ function putSeen(id, w, p, take){
   const v = Math.round(+p || 0);
   (st.seen[id] = st.seen[id] || {})[w] = {p: v > 0 ? v : null, t: Date.now(), take: !!take};
   if (byId[id].x) st.want[id] = 1;
+  logAct(take ? 'take' : 'note', id, {p: v > 0 ? v : null, w});
 }
-function delSeen(id, w){ const e = st.seen[id]; if (!e) return; delete e[w]; if (!Object.keys(e).length) delete st.seen[id]; }
+function delSeen(id, w){ const e = st.seen[id]; if (!e) return; delete e[w]; if (!Object.keys(e).length) delete st.seen[id]; logAct('del', id, {w}); }
 function bestSeen(id){
   let b = null;
   for (const [w, r] of Object.entries(seenOf(id))) if (r.p && (!b || r.p < b.p)) b = {w, p: r.p, t: r.t};
@@ -506,6 +513,7 @@ function buyRec(id, w){
   if (w) st.bought[id] = {p: r ? r.p : null, w, u: shopInfo(w).u, t: Date.now()};
   Object.values(seenOf(id)).forEach(x => { x.take = false; });
   if (byId[id].x) st.want[id] = 1;
+  logAct(w ? 'buy' : 'own', id, w ? {p: r ? r.p : null, w} : null);
 }
 
 function judge(c, price){
@@ -589,7 +597,7 @@ function setOwn(id, val){
     const e = seenOf(id), w = here();
     const src = w && e[w] && e[w].take ? w : Object.keys(e).filter(k => e[k].take).sort((a, b) => e[b].t - e[a].t)[0];
     buyRec(id, src || '');
-  } else { delete st.own[id]; delete st.bought[id]; }
+  } else { delete st.own[id]; delete st.bought[id]; logAct('unown', id); }
   commit([id]); if (val) stampAnim(id);
 }
 grid.addEventListener('click', e => {
@@ -1080,6 +1088,26 @@ function renderTotals(){
   $('#buyInfo').innerHTML = `<h3>Цены и покупки</h3>
     <p>Записал цен: <b>${recN}</b>${recN ? ` в ${shopsN} ${plural(shopsN, 'магазине', 'магазинах', 'магазинах')}` : ''}.</p>
     <p>Купил с записанной ценой: <b>${paid.length}</b>${paid.length ? ` на ${yen(paid.reduce((s, [, b]) => s + b.p, 0))}` : ''}.</p>`;
+  renderLog();
+}
+const ACT = {own: 'есть', unown: 'снял «есть»', buy: 'купил', take: 'беру', note: 'запомнил цену', del: 'удалил цену', imp: 'добавил из списка', reset: 'снял все «есть»'};
+function renderLog(){
+  const L = st.log.slice(-80).reverse(), box = $('#logBox');
+  if (!L.length){ box.innerHTML = '<h3>Журнал отметок</h3><p>Здесь будет видно, что и когда вы отмечали: «есть», цены, покупки. Пока пусто.</p>'; return; }
+  const hm = t => new Date(t).toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+  let html = '<h3>Журнал отметок</h3><p class="why">Последние 80 действий, новые сверху.</p>', cur = '';
+  L.forEach(x => {
+    const d = day(x.t);
+    if (d !== cur){
+      cur = d;
+      const same = st.log.filter(y => day(y.t) === d), ownN = same.filter(y => y.a === 'own' || y.a === 'buy').length;
+      html += `<h4 class="lday">${d}: «есть» и покупки — ${ownN}, цен записано — ${same.filter(y => y.a === 'take' || y.a === 'note').length}</h4>`;
+    }
+    const c = byId[x.i], what = c ? esc(label(c)) : '';
+    const extra = x.a === 'imp' ? `: ${x.n || 0}` : (x.p ? ' ' + yen(x.p) : '') + (x.w ? ` в «${esc(x.w)}»` : '');
+    html += `<p class="lrow"><span>${hm(x.t)}</span> ${what}${what ? ' — ' : ''}${ACT[x.a] || esc(x.a)}${extra}</p>`;
+  });
+  box.innerHTML = html;
 }
 function exportText(){
   const ownB = cards.filter(c => st.own[c.i]).map(c => c.i);
@@ -1098,7 +1126,7 @@ function exportText(){
   if (mine.length) lines.push(`Мои магазины: ${mine.join('; ')}`);
   if (plan.length) lines.push(`Зайду: ${plan.join('; ')}`);
   if (notes.length) lines.push('Заметки:', ...notes);
-  lines.push('#op14 ' + JSON.stringify({v: 3, own: Object.keys(st.own), want: Object.keys(st.want), seen: st.seen, bought: st.bought, shops: st.shops, visits: st.visits.slice(-150), notes: st.notes}));
+  lines.push('#op14 ' + JSON.stringify({v: 3, own: Object.keys(st.own), want: Object.keys(st.want), seen: st.seen, bought: st.bought, shops: st.shops, visits: st.visits.slice(-150), notes: st.notes, log: st.log.slice(-400)}));
   return lines.join('\n');
 }
 function importText(text){
@@ -1140,12 +1168,15 @@ function importText(text){
     (Array.isArray(d.visits) ? d.visits : []).forEach(v => { if (isObj(v) && v.w && !seenV.has(v.w + '|' + v.t)) st.visits.push({w: String(v.w), t: +v.t || Date.now()}); });
     st.visits.sort((a, b) => a.t - b.t);
     for (const [id, v] of Object.entries(isObj(d.notes) ? d.notes : {})) if (byId[id] && typeof v === 'string' && !st.notes[id]) st.notes[id] = v;
+    const seenL = new Set(st.log.map(x => x.t + '|' + x.a + '|' + x.i));
+    (Array.isArray(d.log) ? d.log : []).forEach(x => { if (isObj(x) && x.a && !seenL.has(x.t + '|' + x.a + '|' + x.i)) st.log.push({t: +x.t || Date.now(), a: String(x.a), i: String(x.i || ''), p: +x.p > 0 ? Math.round(+x.p) : null, w: String(x.w || '')}); });
+    st.log.sort((a, b) => a.t - b.t);
   } else {
     (text.match(/(?:OP|EB)\d\d-\d{3}(?:_[pr]\d)?|DON(?:_p1)?/g) || []).forEach(id => {
       if (byId[id] && !st.own[id]){ st.own[id] = 1; if (byId[id].x) st.want[id] = 1; added++; }
     });
   }
-  save(); renderAll();
+  logAct('imp', '', {n: added}); save(); renderAll();
   toast(added ? `Добавлено отметок: ${added}` : 'Новых отметок в тексте нет');
 }
 $('#copyOwned').addEventListener('click', async () => {
@@ -1157,7 +1188,7 @@ $('#doImport').addEventListener('click', () => importText($('#importBox').value)
 $('#doReset').addEventListener('click', () => {
   if (!confirm('Снять все отметки «есть»? Цены, магазины, «Хочу» и заметки останутся.')) return;
   const undo = snapshot();
-  st.own = {}; st.bought = {}; save(); renderAll(); toast('Все отметки «есть» сняты', undo);
+  st.own = {}; st.bought = {}; logAct('reset', ''); save(); renderAll(); toast('Все отметки «есть» сняты', undo);
 });
 $('#asof').textContent = DATA.asof;
 
