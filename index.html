@@ -1483,12 +1483,14 @@ function connectFromHash(){
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; }
   connectWith(cfg);
 }
-function importFromHash(){   // a link from Claude: #import=<base64url of a list> adds marks exactly like pasting the list
-  const m = location.hash.match(/^#import=([\w-]+)$/); if (!m) return;
+function importFromHash(){   // a link from Claude adds marks exactly like pasting a list: #import=OP14-001,OP14-020_p1,… or #import=<base64url of a list>
+  const m = location.hash.match(/^#import=([\w,-]+)$/); if (!m) return;
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; }
-  let text;
-  try { text = new TextDecoder().decode(Uint8Array.from(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0))); }
-  catch (e) { toast('Ссылка со списком повреждена: попросите у Claude новую'); return; }
+  let text = m[1];
+  if (!/^(?:(?:OP|EB)\d\d-\d{3}(?:_[pr]\d)?|DON(?:_p1)?)(?:,|$)/.test(text)){   // not a plain list of codes: base64url
+    try { text = new TextDecoder().decode(Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0))); }
+    catch (e) { toast('Ссылка со списком повреждена: попросите у Claude новую'); return; }
+  }
   importText(text);
 }
 function renderSync(){
