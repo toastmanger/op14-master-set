@@ -1483,6 +1483,14 @@ function connectFromHash(){
   try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; }
   connectWith(cfg);
 }
+function importFromHash(){   // a link from Claude: #import=<base64url of a list> adds marks exactly like pasting the list
+  const m = location.hash.match(/^#import=([\w-]+)$/); if (!m) return;
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; }
+  let text;
+  try { text = new TextDecoder().decode(Uint8Array.from(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0))); }
+  catch (e) { toast('Ссылка со списком повреждена: попросите у Claude новую'); return; }
+  importText(text);
+}
 function renderSync(){
   const line = $('#syncLine'), box = $('#syncBox');
   if (!st.sync.u){
@@ -1558,6 +1566,8 @@ function renderAll(){
 }
 renderAll();
 connectFromHash();
+importFromHash();
+window.addEventListener('hashchange', importFromHash);   // the page may already be open when the link is tapped
 syncSoon(0);
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
